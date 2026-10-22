@@ -1,10 +1,8 @@
 """Pygame entry point for the educational adaptive traffic-signal lab."""
 from __future__ import annotations
 
-import asyncio
 import csv
 import json
-import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -14,27 +12,15 @@ import pygame
 
 from evaluation import MatchedComparison
 from q_learning_agent import QLearningAgent
-from simulation import APPROACHES, DT, QUEUE_STOP, IntersectionSimulator
+from simulation import APPROACHES, QUEUE_STOP, IntersectionSimulator
 from training import TrainingSession, reward_for_transition
-
-# Pygbag (browser/WebAssembly) build: no system fonts, in-memory filesystem.
-WEB = sys.platform == "emscripten"
-# Glyphs missing from Pygame's built-in web font are replaced with ASCII equivalents.
-ASCII_FALLBACK = str.maketrans({
-    "·": "|", "–": "-", "−": "-", "▶": ">", "Ⅱ": "||", "↓": "v", "↑": "^",
-    "←": "<", "→": ">", "×": "x", "ε": "e",
-})
-
-
-def display_text(text: str) -> str:
-    return text.translate(ASCII_FALLBACK) if WEB else text
-
 
 ROOT = Path(__file__).resolve().parent
 MODELS = ROOT / "models"
 RESULTS = ROOT / "results"
 WIDTH, HEIGHT = 1280, 840
 FPS = 60
+DT = 0.2
 SPEED_LEVELS = (0.5, 1.0, 2.0, 4.0)
 
 PAPER = (242, 243, 237)
@@ -73,63 +59,52 @@ def load_agent() -> QLearningAgent:
 
 
 def save_agent(agent: QLearningAgent) -> None:
-    try:
-        MODELS.mkdir(exist_ok=True)
-        agent.save(MODELS / "q_table.npy")
-        (MODELS / "agent_config.json").write_text(json.dumps({
-            "alpha": agent.alpha,
-            "gamma": agent.gamma,
-            "epsilon": agent.epsilon,
-            "epsilon_decay": agent.epsilon_decay,
-            "min_epsilon": agent.min_epsilon,
-            "updates": agent.updates,
-        }, indent=2), encoding="utf-8")
-    except OSError as exc:
-        print(f"Could not save the Q-table: {exc}")
+    MODELS.mkdir(exist_ok=True)
+    agent.save(MODELS / "q_table.npy")
+    (MODELS / "agent_config.json").write_text(json.dumps({
+        "alpha": agent.alpha,
+        "gamma": agent.gamma,
+        "epsilon": agent.epsilon,
+        "epsilon_decay": agent.epsilon_decay,
+        "min_epsilon": agent.min_epsilon,
+        "updates": agent.updates,
+    }, indent=2), encoding="utf-8")
 
 
 def write_episode_history(history: list[dict[str, Any]]) -> None:
     if not history:
         return
-    try:
-        RESULTS.mkdir(exist_ok=True)
-        path = RESULTS / "episode_history.csv"
-        with path.open("w", newline="", encoding="utf-8") as handle:
-            writer = csv.DictWriter(handle, fieldnames=list(history[0].keys()))
-            writer.writeheader()
-            writer.writerows(history)
-    except OSError as exc:
-        print(f"Could not write episode history: {exc}")
+    RESULTS.mkdir(exist_ok=True)
+    path = RESULTS / "episode_history.csv"
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(history[0].keys()))
+        writer.writeheader()
+        writer.writerows(history)
 
 
 def write_comparison(comparison: MatchedComparison) -> None:
+    RESULTS.mkdir(exist_ok=True)
+    path = RESULTS / "comparison.csv"
     fields = ["density", "controller", "seed", "simulation_seconds", "vehicles_served", "average_wait", "average_queue", "switches", "reward"]
-    try:
-        RESULTS.mkdir(exist_ok=True)
-        path = RESULTS / "comparison.csv"
-        with path.open("w", newline="", encoding="utf-8") as handle:
-            writer = csv.DictWriter(handle, fieldnames=fields)
-            writer.writeheader()
-            for controller in ("rl", "fixed"):
-                for record in comparison.records[controller]:
-                    writer.writerow({
-                        "density": comparison.density,
-                        "controller": controller,
-                        "seed": record["seed"],
-                        "simulation_seconds": record["simulation_seconds"],
-                        "vehicles_served": record["vehicles_served"],
-                        "average_wait": record["average_wait"],
-                        "average_queue": record["average_queue"],
-                        "switches": record["switches"],
-                        "reward": record["reward"],
-                    })
-    except OSError as exc:
-        print(f"Could not write comparison results: {exc}")
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for controller in ("rl", "fixed"):
+            for record in comparison.records[controller]:
+                writer.writerow({
+                    "density": comparison.density,
+                    "controller": controller,
+                    "seed": record["seed"],
+                    "simulation_seconds": record["simulation_seconds"],
+                    "vehicles_served": record["vehicles_served"],
+                    "average_wait": record["average_wait"],
+                    "average_queue": record["average_queue"],
+                    "switches": record["switches"],
+                    "reward": record["reward"],
+                })
 
 
 def font(size: int, mono: bool = False, bold: bool = False) -> pygame.font.Font:
-    if WEB:
-        return pygame.font.Font(None, size + 6)
     candidates = ("consolas", "dejavusansmono", "monospace") if mono else ("segoeui", "arial", "dejavusans")
     for name in candidates:
         candidate = pygame.font.SysFont(name, size, bold=bold)
@@ -158,7 +133,7 @@ class Button:
             fill, text_color = (237, 239, 232), (151, 158, 150)
         pygame.draw.rect(surface, fill, self.rect, border_radius=5)
         pygame.draw.rect(surface, border, self.rect, width=1, border_radius=5)
-        label = text_font.render(display_text(self.label), True, text_color)
+        label = text_font.render(self.label, True, text_color)
         surface.blit(label, label.get_rect(center=self.rect.center))
 
 
@@ -407,7 +382,7 @@ class TrafficLabApp:
                     self._say("Five matched-seed episodes per controller are measured. Results are shown in the table and results/comparison.csv.", 12.0)
 
     def _draw_text(self, text: str, x: int, y: int, color: tuple[int, int, int] = INK, key: str = "body", align: str = "topleft") -> pygame.Rect:
-        image = self.fonts[key].render(display_text(str(text)), True, color)
+        image = self.fonts[key].render(str(text), True, color)
         rect = image.get_rect()
         setattr(rect, align, (x, y))
         self.screen.blit(image, rect)
@@ -683,7 +658,7 @@ class TrafficLabApp:
         self._draw_text("WINDOWS · PYTHON 3 · PYGAME · NUMPY", WIDTH - 23, HEIGHT - 8, MUTED, "tiny", "bottomright")
         pygame.display.flip()
 
-    async def run(self) -> None:
+    def run(self) -> None:
         running = True
         while running:
             frame_seconds = self.clock.tick(FPS) / 1000.0
@@ -699,14 +674,13 @@ class TrafficLabApp:
                             break
             self._advance(frame_seconds)
             self.draw()
-            await asyncio.sleep(0)  # yield to the browser each frame (required by Pygbag)
         pygame.quit()
 
 
-async def main() -> None:
+def main() -> None:
     app = TrafficLabApp()
-    await app.run()
+    app.run()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

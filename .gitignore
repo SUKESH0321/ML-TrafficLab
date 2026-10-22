@@ -1,8 +1,0 @@
-.venv/
-__pycache__/
-*.pyc
-web_src/
-.vercel/
-models/*.npy
-models/*.json
-results/*.csv

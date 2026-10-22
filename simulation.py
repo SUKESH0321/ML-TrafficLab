@@ -5,7 +5,6 @@ from typing import Any
 from traffic_signal import TrafficSignal
 from vehicle import Vehicle
 
-DT = 1 / 30
 APPROACHES = ("north", "south", "east", "west")
 QUEUE_STOP = 0.38
 QUEUE_EXIT = 0.62
@@ -123,7 +122,7 @@ class IntersectionSimulator:
                 self.next_vehicle_id += 1
                 self.pending_arrivals[direction] -= 1
 
-    def step(self, dt: float = DT, spawn: bool = True) -> dict[str, Any]:
+    def step(self, dt: float = 0.2, spawn: bool = True) -> dict[str, Any]:
         if dt <= 0:
             raise ValueError("Simulation step must be a positive duration.")
         served_before = self.served

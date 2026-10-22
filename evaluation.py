@@ -2,10 +2,10 @@
 from typing import Any
 
 from q_learning_agent import QLearningAgent
-from simulation import DT, IntersectionSimulator
-from training import reward_for_transition
+from simulation import IntersectionSimulator
+from training import DT, reward_for_transition
 
-TICKS_PER_DECISION = round(1.0 / DT)
+TICKS_PER_DECISION = 5
 DECISIONS_PER_EPISODE = 120
 SEED_BASE = 73191
 

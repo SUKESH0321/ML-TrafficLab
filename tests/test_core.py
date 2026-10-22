@@ -5,10 +5,9 @@ from pathlib import Path
 
 import numpy as np
 
-from evaluation import MatchedComparison, TICKS_PER_DECISION
 from q_learning_agent import QLearningAgent
-from simulation import APPROACHES, DT, IntersectionSimulator, QUEUE_STOP, encode_state, queue_bucket
-from training import TrainingSession, reward_for_transition
+from simulation import APPROACHES, IntersectionSimulator, QUEUE_STOP, encode_state, queue_bucket
+from training import TrainingSession
 from vehicle import Vehicle
 
 
@@ -113,28 +112,6 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(len(session.history), 1)
         self.assertEqual(agent.updates, 8)
         self.assertGreater(float(np.abs(agent.q_table).sum()), 0)
-
-    def test_30_hz_preserves_one_second_decisions_and_time_integrated_reward(self):
-        self.assertAlmostEqual(DT, 1 / 30)
-        self.assertEqual(TICKS_PER_DECISION, 30)
-
-        agent = QLearningAgent()
-        training = TrainingSession(agent, episodes=1, decisions_per_episode=1, seed=5)
-        training.advance_one()
-        self.assertAlmostEqual(training.sim.time, 1.0)
-
-        comparison = MatchedComparison(agent, density="low", seeds=1)
-        comparison.advance_one()
-        self.assertAlmostEqual(comparison.sim.time, 1.0)
-
-        penalty = reward_for_transition({
-            "served": 0,
-            "waiting_seconds": 0.0,
-            "queue_total": 4,
-            "switches": 0,
-            "max_wait_by_approach": {"north": 20.0, "south": 0.0, "east": 0.0, "west": 0.0},
-        })
-        self.assertAlmostEqual(penalty, (-0.125 * 4 - 0.025 * 5) * DT)
 
 
 if __name__ == "__main__":

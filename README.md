@@ -22,12 +22,11 @@ No API, database, cloud service, prediction model, or external RL library is nee
 
 ## Reinforcement Learning definitions
 
-- The simulator advances at 30 Hz (`DT = 1/30` second). Training and evaluation still make decisions once per simulated second; each training episode is 90 seconds and each matched comparison episode is 120 seconds.
 - **Agent:** the tabular Q-Learning controller.
 - **Environment:** the stochastic four-approach intersection simulator.
 - **State:** each approach's queue category (Low 0–2 vehicles, Medium 3–5, High 6+) plus the current phase (N–S or E–W). There are 3⁴ × 2 = 162 states.
 - **Actions:** 0 = North, 1 = South, 2 = East, 3 = West. North or South requests the shared North–South green phase; East or West requests the East–West phase. Four queues remain independent, so the observation still shows directional imbalance.
-- **Reward:** `r = 2.5 × vehicles served − 0.03 × waiting seconds − 0.125 × queue vehicle-seconds − 0.8 × phase switches − 0.025 × excess-starvation exposure`. Queue and starvation rate penalties are integrated over each 1/30-second update, preserving the previous penalty per simulated second; an approach's longest current wait above 15 seconds contributes to excess-starvation exposure. Positive throughput adds reward; waiting, congestion, switching, and starvation subtract reward. These are educational coefficients, not calibrated traffic-engineering values.
+- **Reward:** `r = 2.5 × vehicles served − 0.03 × waiting seconds − 0.025 × total queued vehicles − 0.8 × phase switches − 0.005 × excess starvation seconds`. An approach's longest current wait above 15 seconds contributes excess starvation. Positive throughput adds reward; waiting, congestion, switching, and starvation subtract reward. These are educational coefficients, not calibrated traffic-engineering values.
 
 The learning update is:
 
@@ -41,13 +40,9 @@ Q(s, a) ← Q(s, a) + α [r + γ max_a′ Q(s′, a′) − Q(s, a)]
 
 The environment permits only two green phases: N–S green with E–W red, or E–W green with N–S red. Actions are requests; the environment, not the agent, decides when a requested change can take effect. The current phase must meet a 5-second minimum, a phase is limited to 17 seconds before the environment requests the other axis, and a one-second all-red interval is inserted during axis changes. Vehicles already inside the intersection are allowed to clear during all-red; new entrants must have the green for their axis. Vehicles keep a minimum same-lane gap and cannot cross a red stop line.
 
-## How to run the project
+## Install on Windows
 
-### Quick start (Windows, PowerShell)
-
-1. Install Python 3.10+ (3.11 recommended) from [python.org](https://www.python.org/downloads/windows/) and tick "Add python.exe to PATH" / enable the `py` launcher. Check with `py --version`.
-2. Open PowerShell in the project folder (the one containing `main.py`).
-3. Create a virtual environment and install the dependencies (one time only):
+Install Python 3.10+ from [python.org](https://www.python.org/downloads/windows/) and enable the Python launcher (`py`). Extract the downloaded ZIP, open PowerShell in the `python-traffic-rl` directory, then run:
 
 ```powershell
 py -m venv .venv
@@ -56,63 +51,17 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-4. Start the app:
+If PowerShell blocks activation, use Command Prompt and run `.venv\\Scripts\\activate.bat`, or call `.venv\\Scripts\\python.exe` directly without activating. Optional additional Matplotlib graph support can be installed with `pip install matplotlib`.
+
+## Run the application
+
+From the project directory with the virtual environment active:
 
 ```powershell
-python main.py
+py main.py
 ```
 
-On later runs you only need steps 2, `.venv\Scripts\Activate.ps1`, and 4.
-
-If PowerShell blocks activation ("running scripts is disabled"), either run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, use Command Prompt with `.venv\Scripts\activate.bat`, or skip activation and call `.venv\Scripts\python.exe main.py` directly.
-
-### macOS / Linux
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python3 main.py
-```
-
-### Using the app
-
-A 1280 × 840 Pygame window opens. Press **Esc** or close the window to quit.
-
-Suggested first session:
-
-1. Pick a traffic density (**LOW / MEDIUM / HIGH**).
-2. Click **START** for a live demo with no learning.
-3. Click **TRAIN AGENT** (default 80 episodes; adjust with **EPISODES −/+**). Use **SPEED +** to train faster. The reward trace updates after each episode.
-4. After training, click **RUN LEARNED POLICY** or **FIXED-TIME BASELINE**. Either one starts the 5-seed comparison (10 runs); the results table fills in when it finishes.
-
-The agent stores its table in `models/q_table.npy` (plus `models/agent_config.json`), and the app loads it automatically on the next start. Training history is written to `results/episode_history.csv` and comparison runs to `results/comparison.csv`. To start from scratch, delete the files in `models/` and `results/`.
-
-### Deploy to the web (Vercel)
-
-The project can run in a browser through Pygbag (Python compiled to WebAssembly), served as a static site.
-
-```powershell
-pip install pygbag
-python build_web.py
-```
-
-This writes the site to `public/`. Commit it (`git add . && git commit`), push to GitHub, then on vercel.com choose **Add New > Project**, import the repo and deploy. `vercel.json` already sets `public` as the output directory with no build step. Re-run `python build_web.py` and push again whenever the code changes. The first load in a browser downloads the Python runtime and NumPy (about 20 MB), so give it a minute. In the browser build the Q-table and CSVs live in memory only, so they reset on page reload.
-
-### Run the tests (no window needed)
-
-From the project folder:
-
-```powershell
-python -m unittest discover -s tests -v
-```
-
-### Troubleshooting
-
-- `ModuleNotFoundError: pygame` or `numpy`: the virtual environment is not active, or `pip install -r requirements.txt` was not run.
-- `python` / `py` not recognised: reinstall Python with PATH / the launcher enabled.
-- Window does not open on a remote or headless machine: Pygame needs a display; the tests above run without one.
-- Optional Matplotlib graph support: `pip install matplotlib` (not required).
+A 1280 × 840 Pygame window opens. Use the on-screen buttons to start/pause/reset, choose low/medium/high arrivals, change simulation speed, train, run the learned policy, or run the fixed-time baseline. The agent stores its table in `models/q_table.npy`; the application loads that table on a later start when available. Training history and measured evaluation episodes are saved under `results/`.
 
 ## Train and evaluate
 
@@ -123,9 +72,6 @@ Choose the episode count in the sidebar and select **Train Agent**. Training adv
 ## File organization
 
 ```text
-EXPLAINED.txt           Plain-language overview of the whole project
-build_web.py            Builds the Pygbag browser version into public/
-vercel.json             Vercel static-site config (serves public/)
 main.py                 Pygame interface and event/render loop
 simulation.py           Vehicle arrival, queues, movement, state, rewards' inputs
 vehicle.py              One vehicle's state

@@ -3,7 +3,9 @@ import random
 from typing import Any
 
 from q_learning_agent import QLearningAgent
-from simulation import DT, IntersectionSimulator
+from simulation import IntersectionSimulator
+
+DT = 0.2
 
 
 def reward_for_transition(metrics: dict[str, Any]) -> float:
@@ -12,9 +14,9 @@ def reward_for_transition(metrics: dict[str, Any]) -> float:
     return (
         2.5 * metrics["served"]
         - 0.03 * metrics["waiting_seconds"]
-        - 0.125 * metrics["queue_total"] * DT
+        - 0.025 * metrics["queue_total"]
         - 0.8 * metrics["switches"]
-        - 0.025 * starvation_excess * DT
+        - 0.005 * starvation_excess
     )
 
 
