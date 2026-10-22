@@ -1,0 +1,4 @@
+pygame>=2.5,<3
+numpy>=1.26,<3
+# Optional, only if you want to export an additional Matplotlib training graph:
+# matplotlib>=3.8,<4
