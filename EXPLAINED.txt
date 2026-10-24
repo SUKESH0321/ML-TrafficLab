@@ -1,0 +1,266 @@
+==============================================================================
+ ADAPTIVE TRAFFIC LAB - EXPLAINED
+ Reinforcement-Learning-Based Traffic Signal Control (Tabular Q-Learning)
+==============================================================================
+
+1. WHAT IS THIS PROJECT?
+------------------------------------------------------------------------------
+An educational college mini-project. A small simulated four-way intersection
+(North / South / East / West) is controlled by a Q-Learning agent that learns
+which traffic-light phase to request based on how long the queues are.
+A Pygame desktop window shows the intersection live, lets you train the agent,
+and compares it against a plain fixed-timer traffic light.
+
+It is NOT a real-world traffic controller. It is a teaching/demo tool.
+
+The core question: "Can an agent LEARN a better signal policy from
+experience, instead of using a fixed timer?" The project measures the answer
+honestly - it does not assume the RL agent always wins.
+
+
+2. TECH STACK
+------------------------------------------------------------------------------
+- Language : Python 3.10+ (3.11 recommended). Uses modern type syntax
+             like `list[int] | None`.
+- Pygame   : (>=2.5,<3) 2D rendering, window (1280x840 @ 60 FPS), buttons,
+             event loop. Everything on screen is drawn by hand with
+             pygame.draw - no image assets.
+- NumPy    : (>=1.26,<3) holds the Q-table (a 162 x 4 float64 array) and
+             saves/loads it as a .npy file.
+- stdlib   : random (seeded arrivals), csv (results), json (agent config),
+             dataclasses, pathlib, unittest (tests).
+- Optional : Matplotlib (commented out in requirements.txt, not needed).
+
+What it does NOT use: no web backend, no database, no API, no cloud, no
+deep-learning framework, no external RL library (no Gym, no Stable-Baselines,
+no PyTorch/TensorFlow). All RL logic is hand-written - that is the point.
+
+
+3. FILE MAP
+------------------------------------------------------------------------------
+main.py              Pygame app: UI, buttons, drawing, main loop, file I/O
+                     (load/save Q-table, write CSVs).
+simulation.py        The ENVIRONMENT: vehicle spawning, movement, queues,
+                     state encoding, metrics.
+traffic_signal.py    The SAFETY LAYER: legal phases, min/max green, all-red.
+vehicle.py           Tiny dataclass for one car.
+q_learning_agent.py  The AGENT: Q-table, epsilon-greedy, Q update, save/load.
+training.py          Reward function + TrainingSession (episode loop).
+evaluation.py        MatchedComparison: RL vs fixed-time on identical seeds.
+tests/test_core.py   Headless unit tests (no display needed).
+requirements.txt     pygame, numpy.
+README.md            Project report-style documentation + viva prep.
+models/              q_table.npy + agent_config.json appear here after training.
+results/             episode_history.csv + comparison.csv appear here.
+pyrightconfig.json   Type-checker config.
+
+
+4. THE "BACKEND" (SIMULATION ENGINE)
+------------------------------------------------------------------------------
+There is no server. The "backend" is the pure-Python simulation that runs
+inside the same process as the UI and is shared by training, evaluation and
+the live demo.
+
+4.1 Time
+  - Fixed step DT = 1/30 s (30 Hz physics).
+  - The agent makes ONE decision per simulated second (30 ticks).
+
+4.2 Roads and cars (simulation.py, vehicle.py)
+  - 4 approaches, each a single straight-through lane (no turns).
+  - A car is just: id, direction, progress (0.0 -> 1.0 along its road),
+    wait_seconds, color_index.
+  - VEHICLE_SPEED = 0.16 progress/sec, VEHICLE_GAP = 0.066 (min spacing).
+  - QUEUE_STOP = 0.38 is the stop line; cars with progress < 0.38 count as
+    "in the queue". QUEUE_EXIT = 0.62 is where a car leaves the conflict box.
+    A car finishing (progress > 1.0) counts as "served".
+  - Cars follow the car ahead (gap limit), stop at a red stop line, but a car
+    already inside the box is allowed to clear during all-red.
+
+4.3 Arrivals (stochastic)
+  Poisson-like: each step, each approach gets an arrival with probability
+  rate * dt / 60. Rates in cars/minute (N, S, E, W):
+      low    : 4, 3, 3, 2
+      medium : 8, 5, 7, 4
+      high   : 13, 9, 11, 7
+  KEY TRICK: the random number is drawn once per approach per step no matter
+  what, so two runs with the same seed see IDENTICAL arrivals even if their
+  signal policies differ. This makes the RL vs fixed-time comparison fair
+  ("paired / matched seeds"). A test (test_arrival_draws_are_matched...)
+  verifies this.
+
+4.4 Signal safety layer (traffic_signal.py)
+  The agent never directly controls lights. It only REQUESTS an action:
+      0=North, 1=South, 2=East, 3=West
+  North/South both mean "I want the N-S axis green"; East/West both mean
+  "I want the E-W axis green". The environment decides if/when it happens:
+    - Only one axis is ever green (no conflicting greens).
+    - MIN green  = 5 s  (can't flip faster).
+    - MAX green  = 17 s (forced to switch to prevent starvation).
+    - ALL-RED    = 1 s between axis changes, and the box must be clear
+                   (no car inside the conflict zone) before the new green.
+  This means the agent cannot learn an unsafe policy - safety is enforced by
+  the environment, not learned.
+
+
+5. THE MACHINE LEARNING
+------------------------------------------------------------------------------
+Algorithm: TABULAR Q-LEARNING (model-free, off-policy, value-based RL).
+
+5.1 RL vocabulary mapped to this project
+  Agent        : QLearningAgent
+  Environment  : IntersectionSimulator (+ TrafficSignal safety layer)
+  State        : queue size category of each approach + current phase
+  Action       : 4 discrete requests (N, S, E, W -> map to 2 axes)
+  Reward       : weighted score after each 1-second decision (see 5.3)
+  Episode      : 90 s of simulated time in training (90 decisions)
+
+5.2 State space - 162 states
+  Each approach's queue length is bucketed:
+      Low = 0-2 cars, Medium = 3-5, High = 6+      (3 levels)
+  4 approaches -> 3^4 = 81 combinations
+  x 2 possible current phases (NS or EW)          -> 81 * 2 = 162 states.
+  encode_state() turns this into a single integer 0..161 (base-3 digits for
+  the queues, +81 if the phase is EW).
+  Q-table shape = 162 states x 4 actions = 648 numbers. Small enough to
+  inspect by eye - that's why tabular Q-learning was chosen.
+
+5.3 Reward function (training.py: reward_for_transition)
+  Computed every 1/30 s tick and summed across the 1 s decision:
+      r =  + 2.5   * vehicles served
+           - 0.03  * waiting seconds
+           - 0.125 * queue_total * DT          (congestion)
+           - 0.8   * phase switches            (discourages flip-flopping)
+           - 0.025 * starvation_excess * DT    (any approach waiting >15 s)
+  The coefficients are hand-picked educational values, not calibrated
+  traffic-engineering numbers. Changing them changes what gets learned.
+
+5.4 The learning rule
+      Q(s,a) <- Q(s,a) + alpha * [ r + gamma * max_a' Q(s',a') - Q(s,a) ]
+  Hyperparameters (q_learning_agent.py defaults):
+      alpha (learning rate)     = 0.18
+      gamma (discount)          = 0.94
+      epsilon (exploration)     = 0.92  (start; mostly random at first)
+      epsilon_decay             = 0.985 per episode
+      min_epsilon               = 0.06  (never fully stops exploring)
+  At the last decision of an episode ("terminal") the future term is 0.
+
+5.5 Epsilon-greedy exploration
+  With probability epsilon -> random action (explore).
+  Otherwise -> argmax of Q[state] (exploit). Ties go to the lowest action
+  index (np.argmax is deterministic). Epsilon shrinks after each episode so
+  behaviour shifts from exploring to exploiting.
+  During evaluation explore=False -> purely greedy, and NO table updates.
+
+5.6 Training loop (training.py: TrainingSession)
+  - Default 80 episodes (UI lets you set 10..1000 in steps of 10).
+  - Each episode gets a fresh simulator with a different deterministic seed
+    (seed + episode*7919), alternating start phase NS / EW.
+  - Each decision: observe state -> pick action -> run 30 sim ticks ->
+    sum reward -> observe next state -> Q update.
+  - It is "incremental": advance_batch(n) does a few decisions per UI frame
+    so the Pygame window never freezes. train_agent() is a blocking helper
+    for scripts.
+  - After each episode: logs reward, avg wait, avg queue, served, switches,
+    epsilon; decays epsilon; main.py saves the Q-table and CSV.
+
+5.7 Evaluation (evaluation.py: MatchedComparison)
+  Compares two controllers on the SAME arrival streams:
+    - RL     : greedy Q-table policy.
+    - Fixed  : dumb timer - N-S for 12 s, E-W for 12 s, repeat. No adaption.
+  For 5 seeds x 2 controllers = 10 runs, each 120 s (120 decisions).
+  Metrics averaged: average wait per served vehicle, average queue per
+  approach, vehicles served, phase switches, total reward.
+  Results go to results/comparison.csv. The result may favour either
+  controller - the project deliberately makes no pre-filled claims.
+
+
+6. THE UI (main.py)
+------------------------------------------------------------------------------
+- Left: top-down intersection with roads, stop lines, 3-light signal heads,
+  coloured cars, central "ACTIVE PHASE" badge.
+- Right "Instrument panel": 6 metric cards (in system, served, avg wait,
+  avg queue, reward, epsilon + Q-update count), per-approach queue bars,
+  control desk buttons, measured-comparison table, training reward chart.
+- Buttons: START / PAUSE / RESET, TRAIN AGENT, RUN LEARNED POLICY,
+  FIXED-TIME BASELINE, density LOW/MEDIUM/HIGH, SPEED -/+ (0.5x to 4x),
+  EPISODES -/+.
+- Modes: READY, INTERACTIVE DEMO, TRAINING, RL EVALUATION,
+  FIXED-TIME BASELINE.
+- Persistence: models/q_table.npy (+ agent_config.json holding alpha, gamma,
+  epsilon, decay, min_epsilon, update count) is auto-loaded on startup;
+  results/episode_history.csv and results/comparison.csv are read back so
+  charts/tables survive restarts.
+- Esc or window close quits.
+- Live (non-training) mode runs the simulator in real time with an
+  accumulator for the speed multiplier; training mode ignores wall-clock and
+  runs (1 + speed_index) decisions per frame.
+
+
+7. HOW A TRAINING STEP FLOWS (END TO END)
+------------------------------------------------------------------------------
+ main loop frame
+   -> TrainingSession.advance_one()
+        state  = sim.state                       (queue buckets + phase)
+        action = agent.select_action(state)      (epsilon-greedy)
+        sim.request_action(action)               (signal gets a REQUEST)
+        repeat 30 times:
+            sim._spawn()                         (random arrivals)
+            signal.advance()                     (maybe start all-red)
+            move cars, stop at red, count waits  (physics)
+            signal.finish_clearance()            (maybe grant new green)
+            reward += reward_for_transition()
+        next_state = sim.state
+        agent.update(state, action, reward, next_state, terminal)
+   -> end of episode: log, decay epsilon, new seeded simulator
+   -> main.py saves q_table.npy and CSV
+
+
+8. TESTS (tests/test_core.py)
+------------------------------------------------------------------------------
+Headless unittest suite (no window needed). Run from the project folder:
+      python -m unittest discover -s tests   (or python -m unittest tests.test_core)
+Covers: 162-state encoding, Q-update maths (incl. terminal), no conflicting
+greens, cancelled switch causing no false switch count, min-green + all-red
+timing, red light stopping a car, matched arrival draws across policies,
+Q-table save/load, incremental training completion, and 30 Hz time/reward
+integration.
+(Tests import modules from the project root, so run with the root on the
+Python path.)
+
+
+9. HOW TO RUN
+------------------------------------------------------------------------------
+      py -m venv .venv
+      .venv\Scripts\Activate.ps1
+      pip install -r requirements.txt
+      py main.py
+
+
+10. LIMITATIONS (BE HONEST IN THE VIVA)
+------------------------------------------------------------------------------
+- No turns, pedestrians, cyclists, emergency vehicles, multiple junctions,
+  realistic car dynamics or sensor noise.
+- Only 3 queue buckets per approach: coarse state loses information.
+- Reward weights and the 12 s fixed-time cycle are arbitrary.
+- 5 seeds is a small sample; the training curve is not proof of convergence.
+- The 4 actions collapse to 2 meaningful ones (N/S equal, E/W equal) - the
+  extra action resolution is mostly cosmetic (an educational choice).
+- Not safe or validated for real roads.
+
+
+11. QUICK VIVA CHEAT SHEET
+------------------------------------------------------------------------------
+Why RL?            Actions affect future queues; no labelled "right answer"
+                   exists, only reward feedback from interaction.
+Why Q-learning?    Small discrete problem -> a transparent 162x4 table and one
+                   simple update equation.
+What is the table? Estimated discounted future reward for each (state, action).
+Epsilon-greedy?    Random action with prob epsilon, best-known otherwise;
+                   epsilon decays 0.92 -> 0.06.
+Why a safety layer? So the agent can't create conflicting greens; the
+                   environment enforces min/max green and all-red.
+Why matched seeds? Both controllers see identical car arrivals, so differences
+                   come from the policy, not luck.
+Could it lose?     Yes - and that's reported honestly.
+
+==============================================================================

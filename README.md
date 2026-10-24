@@ -1,6 +1,23 @@
 # Reinforcement Learning-Based Adaptive Traffic Signal Control
 
-An educational college mini-project that lets a tabular Q-Learning agent interact with a small, stochastic four-way traffic simulation. It is designed for a live demonstration and academic viva—not for real-road deployment.
+An educational college mini-project that lets a tabular Q-Learning agent interact with a small, stochastic four-way traffic simulation. It runs **in your web browser** (served from localhost by a one-line Python command) and is designed for a live demonstration and academic viva—not for real-road deployment.
+
+> New to the project? Read [EXPLAINED.txt](EXPLAINED.txt) for a plain-English walkthrough of how everything works.
+
+## Quick start
+
+From the project folder:
+
+```bash
+python -m backend.app
+```
+
+Your browser opens at <http://localhost:8000>. Press `Ctrl+C` in the terminal to stop. No packages need installing for the web version (Python 3.10+ standard library only). Useful options:
+
+```bash
+python -m backend.app --port 5000     # choose a port (the next free one is used if it is busy)
+python -m backend.app --no-browser    # start the server without opening a tab
+```
 
 ## Problem statement
 
@@ -12,11 +29,10 @@ The simulation draws one top-down four-way intersection with a separate straight
 
 ## Technology stack
 
-- Python 3.10 or later (3.11 recommended)
-- Pygame for the 2D application and responsive control panel
-- NumPy for the 162 × 4 Q-table and numerical operations
-- Python standard library for stochastic arrivals, evaluation seeds, and CSV output
-- Optional Matplotlib if you want an additional exported graph; the Pygame interface already draws its own learning trace
+- **Web app (primary):** HTML5 canvas + vanilla JavaScript in a single file, [web/index.html](web/index.html). No framework, no build step, no external requests.
+- **Server:** [backend/app.py](backend/app.py), a tiny Python standard-library static server (`python -m backend.app`).
+- **Original Python implementation (reference):** `main.py` (Pygame window), `simulation.py`, `traffic_signal.py`, `vehicle.py`, `q_learning_agent.py`, `training.py`, `evaluation.py`, with unit tests in `tests/`. The JavaScript in `web/index.html` is a direct port of these modules.
+- Python 3.10 or later (3.11 recommended). Pygame and NumPy are needed only for the desktop version and the tests.
 
 No API, database, cloud service, prediction model, or external RL library is needed.
 
@@ -40,53 +56,56 @@ Q(s, a) ← Q(s, a) + α [r + γ max_a′ Q(s′, a′) − Q(s, a)]
 
 The environment permits only two green phases: N–S green with E–W red, or E–W green with N–S red. Actions are requests; the environment, not the agent, decides when a requested change can take effect. The current phase must meet a 5-second minimum, a phase is limited to 17 seconds before the environment requests the other axis, and a one-second all-red interval is inserted during axis changes. Vehicles already inside the intersection are allowed to clear during all-red; new entrants must have the green for their axis. Vehicles keep a minimum same-lane gap and cannot cross a red stop line.
 
-## Install on Windows
+## Using the web app
 
-Install Python 3.10+ from [python.org](https://www.python.org/downloads/windows/) and enable the Python launcher (`py`). Extract the downloaded ZIP, open PowerShell in the `python-traffic-rl` directory, then run:
+- **START** runs a live demonstration. In this mode the agent is not choosing; the environment alternates axes using its maximum-green rule.
+- **PAUSE / RESUME** (or the space bar) freezes and resumes the current experiment. **RESET** starts a clean intersection and keeps the saved Q-table.
+- **LOW / MEDIUM / HIGH** change vehicle arrival rates. **SPEED − / +** change playback speed (0.5×–4×).
+- **TRAIN AGENT** trains for the chosen number of episodes (**EPISODES − / +**, default 80). The trace at the bottom plots reward per episode.
+- **RUN LEARNED POLICY** drives the intersection with the greedy Q-table. **FIXED-TIME BASELINE** alternates the N–S and E–W axes every 12 seconds. Either one also starts a matched comparison: both controllers are measured for five 120-second episodes using the same seeded arrival events within each pair. The table reports mean waiting time per served vehicle, time-averaged queue per approach, vehicles served per episode, and actual phase switches.
+- **CLEAR SAVED Q-TABLE** forgets everything stored in this browser.
+- **Download CSV** links export the episode history and the per-episode comparison rows.
 
-```powershell
-py -m venv .venv
-.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
+The Q-table, training history, and last comparison are stored in your browser's `localStorage`, so they survive page reloads on the same browser and address (note that `localhost:8000` and `localhost:5000` have separate storage).
+
+## Optional: the original Pygame desktop version
+
+```bash
 pip install -r requirements.txt
+python main.py
 ```
 
-If PowerShell blocks activation, use Command Prompt and run `.venv\\Scripts\\activate.bat`, or call `.venv\\Scripts\\python.exe` directly without activating. Optional additional Matplotlib graph support can be installed with `pip install matplotlib`.
+This opens the 1280 × 840 Pygame window and saves its table to `models/q_table.npy` and CSVs to `results/`. It stays in the repository as the reference implementation, but the browser version is smoother and is the recommended way to demo.
 
-## Run the application
+Run the unit tests (headless) with:
 
-From the project directory with the virtual environment active:
-
-```powershell
-py main.py
+```bash
+python -m unittest discover tests
 ```
-
-A 1280 × 840 Pygame window opens. Use the on-screen buttons to start/pause/reset, choose low/medium/high arrivals, change simulation speed, train, run the learned policy, or run the fixed-time baseline. The agent stores its table in `models/q_table.npy`; the application loads that table on a later start when available. Training history and measured evaluation episodes are saved under `results/`.
-
-## Train and evaluate
-
-Choose the episode count in the sidebar and select **Train Agent**. Training advances a small batch from the Pygame event loop so the interface can continue to draw and accept events. The panel shows progress, current episode reward, exploration rate, queues, served vehicles, wait, and an episode-reward graph. Training defaults to 80 episodes; change the count in the interface to explore. The trace is measurement, not proof of convergence.
-
-**Run Learned Policy** uses the greedy Q-table without exploration. **Run Fixed-Time Baseline** alternates the N–S and E–W axes every 12 seconds and does not adapt to queues. Either evaluation starts an incremental comparison: both controllers are measured for five 120-second episodes using the same seeded arrival events within each pair. The table reports mean waiting time per served vehicle, time-averaged queue per approach, vehicles served per episode, and actual phase switches. Per-episode rows are written to `results/comparison.csv`; observed values may favor either controller and depend on the learned table, traffic density, and chosen training budget.
 
 ## File organization
 
 ```text
-main.py                 Pygame interface and event/render loop
+backend/app.py          Static localhost server: python -m backend.app
+web/index.html          The complete browser app (simulation, Q-learning, training, evaluation, UI)
+EXPLAINED.txt           Plain-English explanation of the project
+main.py                 Original Pygame interface and event/render loop
 simulation.py           Vehicle arrival, queues, movement, state, rewards' inputs
 vehicle.py              One vehicle's state
 traffic_signal.py       Safe legal phases, minimum/maximum green, all-red clearance
 q_learning_agent.py     Visible NumPy table, epsilon-greedy choice and update
 training.py             Incremental training session and reward function
 evaluation.py           Matched-seed evaluation and fixed-time reference
-requirements.txt        Pygame and NumPy
-models/                 Local q_table.npy (created when training saves)
-results/                episode_history.csv and comparison.csv
+tests/test_core.py      Headless tests for the Python core
+requirements.txt        Pygame and NumPy (desktop version / tests only)
+models/, results/       Output folders used by the Pygame version
 ```
 
 ## Experimental results and limitations
 
-The interface and CSV files report the measurements generated on your machine. There are intentionally **no claimed or pre-filled performance improvements** in this source. A reproducible seed makes each paired arrival stream comparable, but five runs remain a small sample. Results may be poor with short training, directional imbalance, high arrival rates, coarse state bins, or a reward function whose coefficients do not reflect the desired trade-off.
+The interface reports the measurements generated on your machine. There are intentionally **no claimed or pre-filled performance improvements** in this source. A reproducible seed makes each paired arrival stream comparable, but five runs remain a small sample. Results may be poor with short training, directional imbalance, high arrival rates, coarse state bins, or a reward function whose coefficients do not reflect the desired trade-off. In practice a short training run often does **not** beat the fixed-time baseline; that is an honest result, not a bug.
+
+The browser version uses its own pseudo-random generator, so exact numbers differ from the Python version even with the same seeds; the behaviour and rules are the same.
 
 The model deliberately omits turns, lane choice, pedestrians, cyclists, emergency vehicles, multiple intersections, realistic vehicle dynamics, detector failures, and legal signal certification. The fixed-time schedule and reward coefficients are educational simplifications. Results from this simulation do not demonstrate that the learned table is safe or effective on public roads. **This is not a real-world traffic-signal controller.**
 
